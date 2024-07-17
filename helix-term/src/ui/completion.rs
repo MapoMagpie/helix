@@ -1,6 +1,9 @@
 use crate::{
     compositor::{Component, Context, Event, EventResult},
-    handlers::{completion::ResolveHandler, trigger_auto_completion},
+    handlers::{
+        completion::{ResolveHandler, Trigger},
+        trigger_auto_completion,
+    },
 };
 use helix_view::{
     document::SavePoint,
@@ -98,7 +101,7 @@ pub struct CompletionItem {
 pub struct Completion {
     popup: Popup<Menu<CompletionItem>>,
     #[allow(dead_code)]
-    trigger_offset: usize,
+    pub trigger: Trigger,
     filter: String,
     resolve_handler: ResolveHandler,
 }
@@ -110,7 +113,7 @@ impl Completion {
         editor: &Editor,
         savepoint: Arc<SavePoint>,
         mut items: Vec<CompletionItem>,
-        trigger_offset: usize,
+        trigger: Trigger,
     ) -> Self {
         let preview_completion_insert = editor.config().preview_completion_insert;
         let replace_mode = editor.config().completion_replace;
@@ -166,6 +169,7 @@ impl Completion {
                     // document changed (and not just the selection) then we will
                     // likely delete the wrong text (same if we applied an edit sent by the LS)
                     debug_assert!(primary_cursor == trigger_offset);
+                    // TODO: compute the edit_offset from new_text
                     (None, new_text)
                 };
 
@@ -235,6 +239,7 @@ impl Completion {
 
             match event {
                 PromptEvent::Abort => {}
+                // MARK: completion update
                 PromptEvent::Update if preview_completion_insert => {
                     // Update creates "ghost" transactions which are not sent to the
                     // lsp server to avoid messing up re-requesting completions. Once a
@@ -262,7 +267,7 @@ impl Completion {
                         view.id,
                         &item.item,
                         language_server!(item).offset_encoding(),
-                        trigger_offset,
+                        trigger.pos,
                         true,
                         replace_mode,
                     );
@@ -289,6 +294,7 @@ impl Completion {
                         }
                     };
                     // if more text was entered, remove it
+                    // FIX: delete wrong text
                     doc.restore(view, &savepoint, true);
                     // save an undo checkpoint before the completion
                     doc.append_changes_to_history(view);
@@ -297,15 +303,20 @@ impl Completion {
                         view.id,
                         &item.item,
                         offset_encoding,
-                        trigger_offset,
+                        trigger.pos,
                         false,
                         replace_mode,
                     );
+                    // log::error!(
+                    //     "completion apply, event: validate; item: {:?}\ntransaction:\n{:?}",
+                    //     item.item.label,
+                    //     transaction
+                    // );
                     doc.apply(&transaction, view.id);
 
                     editor.last_completion = Some(CompleteAction::Applied {
-                        trigger_offset,
-                        changes: completion_changes(&transaction, trigger_offset),
+                        trigger_offset: trigger.pos,
+                        changes: completion_changes(&transaction, trigger.pos),
                     });
 
                     // TODO: add additional _edits to completion_changes?
@@ -350,7 +361,7 @@ impl Completion {
         let fragment = doc.text().slice(start_offset..cursor);
         let mut completion = Self {
             popup,
-            trigger_offset,
+            trigger,
             // TODO: expand nucleo api to allow moving straight to a Utf32String here
             // and avoid allocation during matching
             filter: String::from(fragment),

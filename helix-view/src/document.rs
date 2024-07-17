@@ -1364,7 +1364,9 @@ impl Document {
                     );
 
                     if let Some(notify) = notify {
-                        tokio::spawn(notify);
+                        if let Err(e) = helix_lsp::block_on(notify) {
+                            log::error!("apply impl notify did change error: {e}")
+                        }
                     }
                 }
             }

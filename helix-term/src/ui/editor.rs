@@ -2,6 +2,7 @@ use crate::{
     commands::{self, OnKeyCallback},
     compositor::{Component, Context, Event, EventResult},
     events::{OnModeSwitch, PostCommand},
+    handlers::completion::Trigger,
     key,
     keymap::{KeymapResult, Keymaps},
     ui::{
@@ -1023,23 +1024,32 @@ impl EditorView {
         editor: &mut Editor,
         savepoint: Arc<SavePoint>,
         items: Vec<CompletionItem>,
-        trigger_offset: usize,
+        trigger: Trigger,
         size: Rect,
+        append: bool,
     ) -> Option<Rect> {
-        let mut completion = Completion::new(editor, savepoint, items, trigger_offset);
+        // let (view, doc) = current!(editor);
+        // if let Some(CompleteAction::Selected { savepoint }) = editor.last_completion.take() {
+        //     doc.restore(view, &savepoint, false);
+        // }
+        let mut completion = Completion::new(editor, savepoint, items, trigger);
 
-        if completion.is_empty() {
-            // skip if we got no completion results
-            return None;
+        let is_empty = completion.is_empty();
+        // TODO : propagate required size on resize to completion too
+        let area = completion.area(size, editor);
+
+        self.completion = Some(completion);
+        if !append {
+            editor.last_completion = Some(CompleteAction::Triggered);
+            self.last_insert.1.push(InsertEvent::TriggerCompletion);
         }
 
-        let area = completion.area(size, editor);
-        editor.last_completion = Some(CompleteAction::Triggered);
-        self.last_insert.1.push(InsertEvent::TriggerCompletion);
-
-        // TODO : propagate required size on resize to completion too
-        self.completion = Some(completion);
-        Some(area)
+        if is_empty {
+            // skip if we got no completion results
+            None
+        } else {
+            Some(area)
+        }
     }
 
     pub fn clear_completion(&mut self, editor: &mut Editor) {

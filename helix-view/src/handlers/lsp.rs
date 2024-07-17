@@ -2,7 +2,7 @@ use crate::editor::Action;
 use crate::Editor;
 use crate::{DocumentId, ViewId};
 use helix_lsp::util::generate_transaction_from_edits;
-use helix_lsp::{lsp, OffsetEncoding};
+use helix_lsp::{lsp, LanguageServerId, OffsetEncoding, TriggerKind};
 
 pub enum CompletionEvent {
     /// Auto completion was triggered by typing a word char
@@ -10,13 +10,7 @@ pub enum CompletionEvent {
         cursor: usize,
         doc: DocumentId,
         view: ViewId,
-    },
-    /// Auto completion was triggered by typing a trigger char
-    /// specified by the LSP
-    TriggerChar {
-        cursor: usize,
-        doc: DocumentId,
-        view: ViewId,
+        trigger_servers: Vec<(TriggerKind, LanguageServerId)>,
     },
     /// A completion was manually requested (c-x)
     ManualTrigger {

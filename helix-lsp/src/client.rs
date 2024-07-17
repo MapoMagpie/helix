@@ -958,6 +958,16 @@ impl Client {
             lsp::TextDocumentSyncKind::NONE => return None,
             kind => unimplemented!("{:?}", kind),
         };
+        // if self.name() == "rust-analyzer" {
+        //     let bt = backtrace::Backtrace::force_capture();
+        //     log::error!("----------------------------\nsend didChange to {} changes:\n{}\n{bt:?}\n----------------------------", self.name(),
+        //     changes
+        //         .iter()
+        //         .map(|c| format!("{:?}", c))
+        //         .collect::<Vec<_>>()
+        //         .join("\n")
+        //     );
+        // }
 
         Some(self.notify::<lsp::notification::DidChangeTextDocument>(
             lsp::DidChangeTextDocumentParams {

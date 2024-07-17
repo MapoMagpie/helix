@@ -64,6 +64,13 @@ pub enum OffsetEncoding {
     Utf16,
 }
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum TriggerKind {
+    Auto,
+    TriggerChar(char),
+    Manual,
+}
+
 pub mod util {
     use super::*;
     use helix_core::line_ending::{line_end_byte_index, line_end_char_index};
@@ -976,9 +983,14 @@ fn start_client(
         let value = _client
             .capabilities
             .get_or_try_init(|| {
-                _client
-                    .initialize(enable_snippets)
-                    .map_ok(|response| response.capabilities)
+                _client.initialize(enable_snippets).map_ok(|response| {
+                    log::debug!(
+                        "client initialized: {}, capabilities: {:?}",
+                        _client.name(),
+                        &response.capabilities
+                    );
+                    response.capabilities
+                })
             })
             .await;
 

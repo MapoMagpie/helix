@@ -9,8 +9,8 @@ use helix_core::syntax::LanguageServerFeature;
 use helix_event::{
     cancelable_future, cancelation, register_hook, send_blocking, CancelRx, CancelTx,
 };
-use helix_lsp::lsp;
 use helix_lsp::util::pos_to_lsp_pos;
+use helix_lsp::{lsp, LanguageServerId, TriggerKind};
 use helix_stdx::rope::RopeSliceExt;
 use helix_view::document::{Mode, SavePoint};
 use helix_view::handlers::lsp::CompletionEvent;
@@ -33,19 +33,12 @@ use super::Handlers;
 pub use resolve::ResolveHandler;
 mod resolve;
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum TriggerKind {
-    Auto,
-    TriggerChar,
-    Manual,
-}
-
 #[derive(Debug, Clone, Copy)]
-struct Trigger {
-    pos: usize,
-    view: ViewId,
-    doc: DocumentId,
-    kind: TriggerKind,
+pub struct Trigger {
+    pub pos: usize,
+    pub view: ViewId,
+    pub doc: DocumentId,
+    pub kind: TriggerKind,
 }
 
 #[derive(Debug)]
@@ -53,6 +46,7 @@ pub(super) struct CompletionHandler {
     /// currently active trigger which will cause a
     /// completion request after the timeout
     trigger: Option<Trigger>,
+    trigger_servers: Option<Vec<(TriggerKind, LanguageServerId)>>,
     /// A handle for currently active completion request.
     /// This can be used to determine whether the current
     /// request is still active (and new triggers should be
@@ -68,6 +62,7 @@ impl CompletionHandler {
             config,
             request: None,
             trigger: None,
+            trigger_servers: None,
         }
     }
 }
@@ -80,12 +75,15 @@ impl helix_event::AsyncHook for CompletionHandler {
         event: Self::Event,
         _old_timeout: Option<Instant>,
     ) -> Option<Instant> {
+        self.trigger_servers = None;
         match event {
             CompletionEvent::AutoTrigger {
                 cursor: trigger_pos,
                 doc,
                 view,
+                trigger_servers,
             } => {
+                self.request = None;
                 // techically it shouldn't be possible to switch views/documents in insert mode
                 // but people may create weird keymaps/use the mouse so lets be extra careful
                 if self
@@ -93,6 +91,7 @@ impl helix_event::AsyncHook for CompletionHandler {
                     .as_ref()
                     .map_or(true, |trigger| trigger.doc != doc || trigger.view != view)
                 {
+                    self.trigger_servers = Some(trigger_servers);
                     self.trigger = Some(Trigger {
                         pos: trigger_pos,
                         view,
@@ -100,16 +99,6 @@ impl helix_event::AsyncHook for CompletionHandler {
                         kind: TriggerKind::Auto,
                     });
                 }
-            }
-            CompletionEvent::TriggerChar { cursor, doc, view } => {
-                // immediately request completions and drop all auto completion requests
-                self.request = None;
-                self.trigger = Some(Trigger {
-                    pos: cursor,
-                    view,
-                    doc,
-                    kind: TriggerKind::TriggerChar,
-                });
             }
             CompletionEvent::ManualTrigger { cursor, doc, view } => {
                 // immediately request completions and drop all auto completion requests
@@ -139,8 +128,8 @@ impl helix_event::AsyncHook for CompletionHandler {
         self.trigger.map(|trigger| {
             // if the current request was closed forget about it
             // otherwise immediately restart the completion request
-            let cancel = self.request.take().map_or(false, |req| !req.is_closed());
-            let timeout = if trigger.kind == TriggerKind::Auto && !cancel {
+            let canceled = self.request.take().map_or(false, |req| !req.is_closed());
+            let timeout = if trigger.kind == TriggerKind::Auto && !canceled {
                 self.config.load().editor.completion_timeout
             } else {
                 // we want almost instant completions for trigger chars
@@ -154,11 +143,12 @@ impl helix_event::AsyncHook for CompletionHandler {
     }
 
     fn finish_debounce(&mut self) {
+        let trigger_servers = self.trigger_servers.take();
         let trigger = self.trigger.take().expect("debounce always has a trigger");
         let (tx, rx) = cancelation();
         self.request = Some(tx);
         dispatch_blocking(move |editor, compositor| {
-            request_completion(trigger, rx, editor, compositor)
+            request_completion(trigger, rx, editor, compositor, trigger_servers)
         });
     }
 }
@@ -168,6 +158,7 @@ fn request_completion(
     cancel: CancelRx,
     editor: &mut Editor,
     compositor: &mut Compositor,
+    trigger_servers: Option<Vec<(TriggerKind, LanguageServerId)>>,
 ) {
     let (view, doc) = current!(editor);
 
@@ -195,49 +186,45 @@ fn request_completion(
     // and primary cursor matching for multi-cursor completions so this is definitely
     // necessary from our side too.
     trigger.pos = cursor;
-    let trigger_text = text.slice(..cursor);
 
     let mut seen_language_servers = HashSet::new();
     let mut futures: FuturesUnordered<_> = doc
         .language_servers_with_feature(LanguageServerFeature::Completion)
         .filter(|ls| seen_language_servers.insert(ls.id()))
-        .map(|ls| {
+        .filter_map(|ls| {
+            trigger_servers
+                .as_ref()
+                .map_or(Some((TriggerKind::Manual, ls)), |servers| {
+                    servers.iter().find_map(|(trigger_kind, id)| {
+                        if *id == ls.id() {
+                            Some((*trigger_kind, ls))
+                        } else {
+                            None
+                        }
+                    })
+                })
+        })
+        .map(|(kind, ls)| {
             let language_server_id = ls.id();
             let offset_encoding = ls.offset_encoding();
             let pos = pos_to_lsp_pos(text, cursor, offset_encoding);
             let doc_id = doc.identifier();
-            let context = if trigger.kind == TriggerKind::Manual {
-                lsp::CompletionContext {
+
+            let context = match kind {
+                TriggerKind::Manual | TriggerKind::Auto => lsp::CompletionContext {
                     trigger_kind: lsp::CompletionTriggerKind::INVOKED,
                     trigger_character: None,
-                }
-            } else {
-                let trigger_char =
-                    ls.capabilities()
-                        .completion_provider
-                        .as_ref()
-                        .and_then(|provider| {
-                            provider
-                                .trigger_characters
-                                .as_deref()?
-                                .iter()
-                                .find(|&trigger| trigger_text.ends_with(trigger))
-                        });
-
-                if trigger_char.is_some() {
-                    lsp::CompletionContext {
-                        trigger_kind: lsp::CompletionTriggerKind::TRIGGER_CHARACTER,
-                        trigger_character: trigger_char.cloned(),
-                    }
-                } else {
-                    lsp::CompletionContext {
-                        trigger_kind: lsp::CompletionTriggerKind::INVOKED,
-                        trigger_character: None,
-                    }
-                }
+                },
+                TriggerKind::TriggerChar(c) => lsp::CompletionContext {
+                    trigger_kind: lsp::CompletionTriggerKind::TRIGGER_CHARACTER,
+                    trigger_character: Some(c.to_string()),
+                },
             };
 
+            let lsp_name = ls.name().to_owned();
+            log::error!("request completion from [{lsp_name}], context: {context:?}");
             let completion_response = ls.completion(doc_id, pos, None, context).unwrap();
+            let lsp_name = ls.name().to_owned();
             async move {
                 let json = completion_response.await?;
                 let response: Option<lsp::CompletionResponse> = serde_json::from_value(json)?;
@@ -256,38 +243,49 @@ fn request_completion(
                     provider: language_server_id,
                     resolved: false,
                 })
-                .collect();
-                anyhow::Ok(items)
+                .collect::<Vec<_>>();
+                anyhow::Ok((items, lsp_name))
             }
         })
         .collect();
-
-    let future = async move {
-        let mut items = Vec::new();
-        while let Some(lsp_items) = futures.next().await {
-            match lsp_items {
-                Ok(mut lsp_items) => items.append(&mut lsp_items),
-                Err(err) => {
-                    log::debug!("completion request failed: {err:?}");
-                }
-            };
-        }
-        items
-    };
-
-    let savepoint = doc.savepoint(view);
-
+    if futures.is_empty() {
+        return;
+    }
     let ui = compositor.find::<ui::EditorView>().unwrap();
     ui.last_insert.1.push(InsertEvent::RequestCompletion);
+
+    let savepoint = doc.savepoint(view);
     tokio::spawn(async move {
-        let items = cancelable_future(future, cancel).await.unwrap_or_default();
-        if items.is_empty() {
-            return;
-        }
-        dispatch(move |editor, compositor| {
-            show_completion(editor, compositor, items, trigger, savepoint)
-        })
-        .await
+        let future = async move {
+            let mut all_items = Vec::new();
+            let mut append = false;
+            while let Some(ret) = futures.next().await {
+                let savepoint = savepoint.clone();
+                match ret {
+                    Ok((mut items, name)) => {
+                        if items.is_empty() {
+                            continue;
+                        }
+                        log::error!(
+                            "completion request from {name}, got {} completions, alearly got {}",
+                            items.len(),
+                            all_items.len()
+                        );
+                        items.append(&mut all_items);
+                        all_items = items.clone();
+                        dispatch(move |editor, compositor| {
+                            show_completion(editor, compositor, items, trigger, savepoint, append)
+                        })
+                        .await;
+                        append = true;
+                    }
+                    Err(err) => {
+                        log::debug!("completion request failed: {err:?}")
+                    }
+                }
+            }
+        };
+        cancelable_future(future, cancel).await
     });
 }
 
@@ -297,6 +295,7 @@ fn show_completion(
     items: Vec<CompletionItem>,
     trigger: Trigger,
     savepoint: Arc<SavePoint>,
+    append: bool,
 ) {
     let (view, doc) = current_ref!(editor);
     // check if the completion request is stale.
@@ -305,16 +304,34 @@ fn show_completion(
     //switch document/view or leave insert mode. In all of thoise cases the
     // completion should be discarded
     if editor.mode != Mode::Insert || view.id != trigger.view || doc.id() != trigger.doc {
+        log::error!(
+            "show completions cancel, doc.id not eq, old: [{}], new: [{}]",
+            doc.id(),
+            trigger.doc
+        );
         return;
     }
 
     let size = compositor.size();
     let ui = compositor.find::<ui::EditorView>().unwrap();
-    if ui.completion.is_some() {
-        return;
+
+    match (append, ui.completion.as_ref()) {
+        (true, None) => {
+            log::info!("show completions cancel, append: [{append}], ui.completion is empty");
+            return;
+        }
+        (false, Some(_)) => {
+            log::info!("show completions cancel, append: [{append}], ui.completion is some");
+            return;
+        }
+        (true, Some(completion)) if completion.trigger.pos != trigger.pos => {
+            log::info!("show completions cancel, append: [{append}], ui.completion is some but trigger pos not eq, old: [{}], new: [{}]", completion.trigger.pos, trigger.pos);
+            return;
+        }
+        _ => {}
     }
 
-    let completion_area = ui.set_completion(editor, savepoint, items, trigger.pos, size);
+    let completion_area = ui.set_completion(editor, savepoint, items, trigger, size, append);
     let signature_help_area = compositor
         .find_id::<Popup<SignatureHelp>>(SignatureHelp::ID)
         .map(|signature_help| signature_help.area(size, editor));
@@ -337,45 +354,47 @@ pub fn trigger_auto_completion(
     let mut text = doc.text().slice(..);
     let cursor = doc.selection(view.id).primary().cursor(text);
     text = doc.text().slice(..cursor);
+    let auto_trigger = doc
+        .text()
+        .chars_at(cursor)
+        .reversed()
+        .take(config.completion_trigger_len as usize)
+        .all(char_is_word);
 
-    let is_trigger_char = doc
+    let trigger_servers = doc
         .language_servers_with_feature(LanguageServerFeature::Completion)
-        .any(|ls| {
-            matches!(&ls.capabilities().completion_provider, Some(lsp::CompletionOptions {
-                        trigger_characters: Some(triggers),
-                        ..
-                    }) if triggers.iter().any(|trigger| text.ends_with(trigger)))
-        });
-    if is_trigger_char {
-        send_blocking(
-            tx,
-            CompletionEvent::TriggerChar {
-                cursor,
-                doc: doc.id(),
-                view: view.id,
-            },
-        );
-        return;
-    }
+        .filter(|ls| ls.capabilities().completion_provider.is_some())
+        .filter_map(|ls| {
+            if let Some(chars) = ls
+                .capabilities()
+                .completion_provider
+                .as_ref()
+                .and_then(|p| p.trigger_characters.as_ref())
+            {
+                if let Some(char) = chars.iter().find(|char| text.ends_with(char)) {
+                    return Some((
+                        TriggerKind::TriggerChar(char.chars().last().unwrap()),
+                        ls.id(),
+                    ));
+                }
+            }
+            if !trigger_char_only && auto_trigger {
+                return Some((TriggerKind::Auto, ls.id()));
+            }
+            None
+        })
+        .collect::<Vec<_>>();
+    log::error!("trigger_auto_completion: ls_trigger: {trigger_servers:?}");
 
-    let is_auto_trigger = !trigger_char_only
-        && doc
-            .text()
-            .chars_at(cursor)
-            .reversed()
-            .take(config.completion_trigger_len as usize)
-            .all(char_is_word);
-
-    if is_auto_trigger {
-        send_blocking(
-            tx,
-            CompletionEvent::AutoTrigger {
-                cursor,
-                doc: doc.id(),
-                view: view.id,
-            },
-        );
-    }
+    send_blocking(
+        tx,
+        CompletionEvent::AutoTrigger {
+            cursor,
+            doc: doc.id(),
+            view: view.id,
+            trigger_servers,
+        },
+    );
 }
 
 fn update_completions(cx: &mut commands::Context, c: Option<char>) {
