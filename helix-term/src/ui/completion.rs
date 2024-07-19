@@ -307,11 +307,6 @@ impl Completion {
                         false,
                         replace_mode,
                     );
-                    // log::error!(
-                    //     "completion apply, event: validate; item: {:?}\ntransaction:\n{:?}",
-                    //     item.item.label,
-                    //     transaction
-                    // );
                     doc.apply(&transaction, view.id);
 
                     editor.last_completion = Some(CompleteAction::Applied {
@@ -375,6 +370,12 @@ impl Completion {
             .score(&completion.filter, false);
 
         completion
+    }
+
+    pub fn extend(&mut self, items: Vec<CompletionItem>) {
+        let menu = self.popup.contents_mut();
+        menu.extend(items);
+        menu.score(&self.filter, false);
     }
 
     /// Synchronously resolve the given completion item. This is used when

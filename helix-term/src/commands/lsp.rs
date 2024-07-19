@@ -96,6 +96,7 @@ impl ui::menu::Item for lsp::Location {
     }
 }
 
+#[derive(PartialEq, Eq)]
 struct SymbolInformationItem {
     symbol: lsp::SymbolInformation,
     offset_encoding: OffsetEncoding,
@@ -132,6 +133,7 @@ struct DiagnosticStyles {
     error: Style,
 }
 
+#[derive(PartialEq, Eq)]
 struct PickerDiagnostic {
     path: PathBuf,
     diag: lsp::Diagnostic,
@@ -494,6 +496,7 @@ pub fn workspace_diagnostics_picker(cx: &mut Context) {
     cx.push_layer(Box::new(overlaid(picker)));
 }
 
+#[derive(PartialEq)]
 struct CodeActionOrCommandItem {
     lsp_item: lsp::CodeActionOrCommand,
     language_server_id: LanguageServerId,

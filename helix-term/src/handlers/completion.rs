@@ -33,7 +33,7 @@ use super::Handlers;
 pub use resolve::ResolveHandler;
 mod resolve;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Trigger {
     pub pos: usize,
     pub view: ViewId,
@@ -221,8 +221,6 @@ fn request_completion(
                 },
             };
 
-            let lsp_name = ls.name().to_owned();
-            log::error!("request completion from [{lsp_name}], context: {context:?}");
             let completion_response = ls.completion(doc_id, pos, None, context).unwrap();
             let lsp_name = ls.name().to_owned();
             async move {
@@ -257,22 +255,18 @@ fn request_completion(
     let savepoint = doc.savepoint(view);
     tokio::spawn(async move {
         let future = async move {
-            let mut all_items = Vec::new();
             let mut append = false;
             while let Some(ret) = futures.next().await {
                 let savepoint = savepoint.clone();
                 match ret {
-                    Ok((mut items, name)) => {
+                    Ok((items, name)) => {
                         if items.is_empty() {
                             continue;
                         }
                         log::error!(
-                            "completion request from {name}, got {} completions, alearly got {}",
+                            "completion request from {name}, got {} completions",
                             items.len(),
-                            all_items.len()
                         );
-                        items.append(&mut all_items);
-                        all_items = items.clone();
                         dispatch(move |editor, compositor| {
                             show_completion(editor, compositor, items, trigger, savepoint, append)
                         })
@@ -324,7 +318,7 @@ fn show_completion(
             log::info!("show completions cancel, append: [{append}], ui.completion is some");
             return;
         }
-        (true, Some(completion)) if completion.trigger.pos != trigger.pos => {
+        (true, Some(completion)) if completion.trigger != trigger => {
             log::info!("show completions cancel, append: [{append}], ui.completion is some but trigger pos not eq, old: [{}], new: [{}]", completion.trigger.pos, trigger.pos);
             return;
         }
@@ -384,7 +378,6 @@ pub fn trigger_auto_completion(
             None
         })
         .collect::<Vec<_>>();
-    log::error!("trigger_auto_completion: ls_trigger: {trigger_servers:?}");
 
     send_blocking(
         tx,

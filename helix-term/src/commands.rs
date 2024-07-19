@@ -2245,7 +2245,7 @@ fn make_search_word_bounded(cx: &mut Context) {
 }
 
 fn global_search(cx: &mut Context) {
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq, Eq)]
     struct FileResult {
         path: PathBuf,
         /// 0 indexed lines
@@ -2890,6 +2890,7 @@ fn file_picker_in_current_directory(cx: &mut Context) {
 fn buffer_picker(cx: &mut Context) {
     let current = view!(cx.editor).doc;
 
+    #[derive(PartialEq, Eq)]
     struct BufferMeta {
         id: DocumentId,
         path: Option<PathBuf>,
@@ -2957,6 +2958,7 @@ fn buffer_picker(cx: &mut Context) {
 }
 
 fn jumplist_picker(cx: &mut Context) {
+    #[derive(PartialEq, Eq)]
     struct JumpMeta {
         id: DocumentId,
         path: Option<PathBuf>,

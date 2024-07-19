@@ -14,7 +14,7 @@ pub use tui::widgets::{Cell, Row};
 use helix_view::{editor::SmartTabConfig, graphics::Rect, Editor};
 use tui::layout::Constraint;
 
-pub trait Item: Sync + Send + 'static {
+pub trait Item: Sync + Send + PartialEq + 'static {
     /// Additional editor state that is used for label calculation.
     type Data: Sync + Send + 'static;
 
@@ -89,7 +89,14 @@ impl<T: Item> Menu<T> {
         }
     }
 
+    pub fn extend(&mut self, options: Vec<T>) {
+        self.options.extend(options);
+        self.matches = (0..self.options.len() as u32).map(|i| (i, 0)).collect();
+        self.recalculate = true;
+    }
+
     pub fn score(&mut self, pattern: &str, incremental: bool) {
+        // TODO restore cursor
         let mut matcher = MATCHER.lock();
         matcher.config = Config::DEFAULT;
         let pattern = Atom::new(pattern, CaseMatching::Ignore, AtomKind::Fuzzy, false);
@@ -230,6 +237,19 @@ impl<T: Item> Menu<T> {
 
     pub fn len(&self) -> usize {
         self.matches.len()
+    }
+
+    pub fn restore_cursor(&mut self, selection: Option<&T>) -> Option<usize> {
+        match selection {
+            Some(option) => self.matches.iter().find_map(|(index, _)| {
+                if self.options[(*index) as usize] == *option {
+                    Some(*index as usize)
+                } else {
+                    None
+                }
+            }),
+            None => None,
+        }
     }
 }
 

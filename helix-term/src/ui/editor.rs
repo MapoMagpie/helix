@@ -1028,28 +1028,28 @@ impl EditorView {
         size: Rect,
         append: bool,
     ) -> Option<Rect> {
-        // let (view, doc) = current!(editor);
-        // if let Some(CompleteAction::Selected { savepoint }) = editor.last_completion.take() {
-        //     doc.restore(view, &savepoint, false);
-        // }
-        let mut completion = Completion::new(editor, savepoint, items, trigger);
-
-        let is_empty = completion.is_empty();
-        // TODO : propagate required size on resize to completion too
-        let area = completion.area(size, editor);
-
-        self.completion = Some(completion);
+        if append {
+            match self.completion.as_mut() {
+                Some(completion) => {
+                    completion.extend(items);
+                }
+                _ => return None,
+            }
+        } else {
+            self.completion = Some(Completion::new(editor, savepoint, items, trigger));
+        }
         if !append {
             editor.last_completion = Some(CompleteAction::Triggered);
             self.last_insert.1.push(InsertEvent::TriggerCompletion);
         }
-
-        if is_empty {
-            // skip if we got no completion results
-            None
-        } else {
-            Some(area)
-        }
+        self.completion.as_mut().and_then(|completion| {
+            if completion.is_empty() {
+                None
+            } else {
+                // TODO : propagate required size on resize to completion too
+                Some(completion.area(size, editor))
+            }
+        })
     }
 
     pub fn clear_completion(&mut self, editor: &mut Editor) {
