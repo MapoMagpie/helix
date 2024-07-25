@@ -60,6 +60,8 @@ pub struct Client {
     initialize_notify: Arc<Notify>,
     /// workspace folders added while the server is still initializing
     req_timeout: u64,
+    // TODO: description
+    auto_completion: bool,
 }
 
 impl Client {
@@ -182,6 +184,7 @@ impl Client {
         id: LanguageServerId,
         name: String,
         req_timeout: u64,
+        auto_completion: bool,
     ) -> Result<(
         Self,
         UnboundedReceiver<(LanguageServerId, Call)>,
@@ -229,6 +232,7 @@ impl Client {
             root_uri,
             workspace_folders: Mutex::new(workspace_folders),
             initialize_notify: initialize_notify.clone(),
+            auto_completion,
         };
 
         Ok((client, server_rx, initialize_notify))
@@ -372,6 +376,10 @@ impl Client {
 
     pub fn config(&self) -> Option<&Value> {
         self.config.as_ref()
+    }
+
+    pub fn auto_completion(&self) -> bool {
+        self.auto_completion
     }
 
     pub async fn workspace_folders(

@@ -80,6 +80,10 @@ fn default_timeout() -> u64 {
     20
 }
 
+fn default_auto_completion() -> bool {
+    true
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct Configuration {
@@ -464,7 +468,9 @@ pub struct LanguageServerConfiguration {
     #[serde(default, skip_serializing, deserialize_with = "deserialize_lsp_config")]
     pub config: Option<serde_json::Value>,
     #[serde(default = "default_timeout")]
-    pub timeout: u64,
+    pub timeout: u64, // in second
+    #[serde(default = "default_auto_completion")]
+    pub auto_completion: bool,
     #[serde(
         default,
         skip_serializing,

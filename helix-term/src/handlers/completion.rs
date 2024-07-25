@@ -19,7 +19,6 @@ use tokio::sync::mpsc::Sender;
 use tokio::time::Instant;
 use tokio_stream::StreamExt;
 
-use crate::commands;
 use crate::compositor::Compositor;
 use crate::config::Config;
 use crate::events::{OnModeSwitch, PostCommand, PostInsertChar};
@@ -27,7 +26,8 @@ use crate::job::{dispatch, dispatch_blocking};
 use crate::keymap::MappableCommand;
 use crate::ui::editor::InsertEvent;
 use crate::ui::lsp::SignatureHelp;
-use crate::ui::{self, CompletionItem, Popup};
+use crate::ui::{CompletionItem, Popup};
+use crate::{commands, ui};
 
 use super::Handlers;
 pub use resolve::ResolveHandler;
@@ -83,15 +83,15 @@ impl helix_event::AsyncHook for CompletionHandler {
                 view,
                 trigger_servers,
             } => {
-                self.request = None;
+                // self.request = None;
                 // techically it shouldn't be possible to switch views/documents in insert mode
                 // but people may create weird keymaps/use the mouse so lets be extra careful
+                self.trigger_servers = Some(trigger_servers);
                 if self
                     .trigger
                     .as_ref()
                     .map_or(true, |trigger| trigger.doc != doc || trigger.view != view)
                 {
-                    self.trigger_servers = Some(trigger_servers);
                     self.trigger = Some(Trigger {
                         pos: trigger_pos,
                         view,
@@ -100,9 +100,15 @@ impl helix_event::AsyncHook for CompletionHandler {
                     });
                 }
             }
-            CompletionEvent::ManualTrigger { cursor, doc, view } => {
+            CompletionEvent::ManualTrigger {
+                cursor,
+                doc,
+                view,
+                trigger_servers,
+            } => {
                 // immediately request completions and drop all auto completion requests
                 self.request = None;
+                self.trigger_servers = Some(trigger_servers);
                 self.trigger = Some(Trigger {
                     pos: cursor,
                     view,
@@ -160,6 +166,11 @@ fn request_completion(
     compositor: &mut Compositor,
     trigger_servers: Option<Vec<(TriggerKind, LanguageServerId)>>,
 ) {
+    log::error!("request_completion: trigger servers: {:?}", trigger_servers);
+    let trigger_servers = trigger_servers.unwrap_or_default();
+    if trigger_servers.is_empty() {
+        return;
+    }
     let (view, doc) = current!(editor);
 
     if compositor
@@ -192,17 +203,13 @@ fn request_completion(
         .language_servers_with_feature(LanguageServerFeature::Completion)
         .filter(|ls| seen_language_servers.insert(ls.id()))
         .filter_map(|ls| {
-            trigger_servers
-                .as_ref()
-                .map_or(Some((TriggerKind::Manual, ls)), |servers| {
-                    servers.iter().find_map(|(trigger_kind, id)| {
-                        if *id == ls.id() {
-                            Some((*trigger_kind, ls))
-                        } else {
-                            None
-                        }
-                    })
-                })
+            trigger_servers.iter().find_map(|(trigger_kind, id)| {
+                if *id == ls.id() {
+                    Some((*trigger_kind, ls))
+                } else {
+                    None
+                }
+            })
         })
         .map(|(kind, ls)| {
             let language_server_id = ls.id();
@@ -372,13 +379,20 @@ pub fn trigger_auto_completion(
                     ));
                 }
             }
-            if !trigger_char_only && auto_trigger {
+            if !trigger_char_only && auto_trigger && ls.auto_completion() {
                 return Some((TriggerKind::Auto, ls.id()));
             }
             None
         })
         .collect::<Vec<_>>();
-
+    use std::fmt::Write;
+    log::error!(
+        "trigger_auto_completion servers:\n {}",
+        trigger_servers.iter().fold(String::new(), |mut w, t| {
+            let _ = writeln!(&mut w, "{:?}: {:?}", t.0, t.1);
+            w
+        })
+    );
     send_blocking(
         tx,
         CompletionEvent::AutoTrigger {

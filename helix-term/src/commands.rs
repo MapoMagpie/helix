@@ -4,6 +4,7 @@ pub(crate) mod typed;
 
 pub use dap::*;
 use helix_event::status;
+use helix_lsp::TriggerKind;
 use helix_stdx::{
     path::expand_tilde,
     rope::{self, RopeSliceExt},
@@ -4680,12 +4681,14 @@ pub fn completion(cx: &mut Context) {
     let range = doc.selection(view.id).primary();
     let text = doc.text().slice(..);
     let cursor = range.cursor(text);
-
+    let trigger_servers = doc
+        .language_servers_with_feature(LanguageServerFeature::Completion)
+        .map(|ls| (TriggerKind::Manual, ls.id()))
+        .collect::<Vec<_>>();
     cx.editor
         .handlers
-        .trigger_completions(cursor, doc.id(), view.id);
+        .trigger_completions(cursor, doc.id(), view.id, trigger_servers);
 }
-
 // comments
 type CommentTransactionFn = fn(
     line_token: Option<&str>,

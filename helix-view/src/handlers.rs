@@ -1,4 +1,5 @@
 use helix_event::send_blocking;
+use helix_lsp::{LanguageServerId, TriggerKind};
 use tokio::sync::mpsc::Sender;
 
 use crate::handlers::lsp::SignatureHelpInvoked;
@@ -22,13 +23,20 @@ pub struct Handlers {
 
 impl Handlers {
     /// Manually trigger completion (c-x)
-    pub fn trigger_completions(&self, trigger_pos: usize, doc: DocumentId, view: ViewId) {
+    pub fn trigger_completions(
+        &self,
+        trigger_pos: usize,
+        doc: DocumentId,
+        view: ViewId,
+        trigger_servers: Vec<(TriggerKind, LanguageServerId)>,
+    ) {
         send_blocking(
             &self.completions,
             lsp::CompletionEvent::ManualTrigger {
                 cursor: trigger_pos,
                 doc,
                 view,
+                trigger_servers,
             },
         );
     }

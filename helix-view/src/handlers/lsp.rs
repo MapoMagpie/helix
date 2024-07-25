@@ -17,6 +17,7 @@ pub enum CompletionEvent {
         cursor: usize,
         doc: DocumentId,
         view: ViewId,
+        trigger_servers: Vec<(TriggerKind, LanguageServerId)>,
     },
     /// Some text was deleted and the cursor is now at `pos`
     DeleteText { cursor: usize },

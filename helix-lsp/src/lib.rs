@@ -701,13 +701,13 @@ impl Registry {
     fn start_client(
         &mut self,
         name: String,
-        ls_config: &LanguageConfiguration,
+        lang_config: &LanguageConfiguration,
         doc_path: Option<&std::path::PathBuf>,
         root_dirs: &[PathBuf],
         enable_snippets: bool,
     ) -> Result<Arc<Client>, StartupError> {
         let syn_loader = self.syn_loader.load();
-        let config = syn_loader
+        let ls_config = syn_loader
             .language_server_configs()
             .get(&name)
             .ok_or_else(|| anyhow::anyhow!("Language server '{name}' not defined"))?;
@@ -715,8 +715,8 @@ impl Registry {
             start_client(
                 id,
                 name,
+                lang_config,
                 ls_config,
-                config,
                 doc_path,
                 root_dirs,
                 enable_snippets,
@@ -972,6 +972,7 @@ fn start_client(
         id,
         name,
         ls_config.timeout,
+        ls_config.auto_completion,
     )?;
 
     let client = Arc::new(client);
