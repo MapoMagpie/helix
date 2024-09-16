@@ -4683,7 +4683,10 @@ pub fn completion(cx: &mut Context) {
     let cursor = range.cursor(text);
     let trigger_servers = doc
         .language_servers_with_feature(LanguageServerFeature::Completion)
-        .map(|ls| (TriggerKind::Manual, ls.id()))
+        .map(|ls| {
+            log::error!("manual trigger: {}", ls.name());
+            (TriggerKind::Manual, ls.id())
+        })
         .collect::<Vec<_>>();
     cx.editor
         .handlers
