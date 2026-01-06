@@ -767,7 +767,7 @@ pub fn code_action(cx: &mut Context) {
                 editor.set_error("No code actions available");
                 return;
             }
-            let mut picker = ui::Menu::new(actions, (), move |editor, action, event| {
+            let mut picker = ui::Menu::new(actions, (), false, move |editor, action, event| {
                 if event != PromptEvent::Validate {
                     return;
                 }

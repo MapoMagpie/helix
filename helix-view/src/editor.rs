@@ -349,6 +349,7 @@ pub struct Config {
         deserialize_with = "deserialize_duration_millis"
     )]
     pub completion_timeout: Duration,
+    pub completion_auto_select: bool,
     /// Whether to insert the completion suggestion on hover. Defaults to true.
     pub preview_completion_insert: bool,
     pub completion_trigger_len: u8,
@@ -1105,6 +1106,7 @@ impl Default for Config {
             auto_save: AutoSave::default(),
             idle_timeout: Duration::from_millis(250),
             completion_timeout: Duration::from_millis(250),
+            completion_auto_select: false,
             preview_completion_insert: true,
             completion_trigger_len: 2,
             auto_info: true,

@@ -21,6 +21,7 @@ pub type MenuCallback<T> = Box<dyn Fn(&mut Editor, Option<&T>, MenuEvent)>;
 pub struct Menu<T: Item> {
     options: Vec<T>,
     editor_data: T::Data,
+    auto_select: bool,
 
     cursor: Option<usize>,
 
@@ -45,12 +46,14 @@ impl<T: Item> Menu<T> {
     pub fn new(
         options: Vec<T>,
         editor_data: <T as Item>::Data,
+        auto_select: bool,
         callback_fn: impl Fn(&mut Editor, Option<&T>, MenuEvent) + 'static,
     ) -> Self {
         let matches = (0..options.len() as u32).map(|i| (i, 0)).collect();
         Self {
             options,
             editor_data,
+            auto_select,
             matches,
             cursor: None,
             widths: Vec::new(),
@@ -169,6 +172,9 @@ impl<T: Item> Menu<T> {
     }
 
     pub fn selection(&self) -> Option<&T> {
+        if self.auto_select && self.matches.len() == 1 {
+            return Some(&self.options[self.matches[0].0 as usize]);
+        }
         self.cursor.and_then(|cursor| {
             self.matches
                 .get(cursor)
