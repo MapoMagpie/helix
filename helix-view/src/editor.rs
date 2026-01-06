@@ -361,6 +361,7 @@ pub struct Config {
     pub inline_completion_timeout: Duration,
     /// Automatically request inline completions while typing. Defaults to true.
     pub inline_completion_auto_trigger: bool,
+    pub completion_auto_select: bool,
     /// Whether to insert the completion suggestion on hover. Defaults to true.
     pub preview_completion_insert: bool,
     pub completion_trigger_len: u8,
@@ -1208,6 +1209,7 @@ impl Default for Config {
             completion_timeout: Duration::from_millis(250),
             inline_completion_timeout: Duration::from_millis(150),
             inline_completion_auto_trigger: true,
+            completion_auto_select: false,
             preview_completion_insert: true,
             completion_trigger_len: 2,
             auto_info: true,
