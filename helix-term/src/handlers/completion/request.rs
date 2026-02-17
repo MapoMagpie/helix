@@ -206,7 +206,7 @@ fn request_completions(
                 trigger_kind: lsp::CompletionTriggerKind::INVOKED,
                 trigger_character: None,
             }
-        } else {
+        } else if !ls.only_manual_trigger() {
             let trigger_char =
                 ls.capabilities()
                     .completion_provider
@@ -230,6 +230,8 @@ fn request_completions(
                     trigger_character: None,
                 }
             }
+        } else {
+            continue;
         };
         requests.spawn(request_completions_from_language_server(
             ls,

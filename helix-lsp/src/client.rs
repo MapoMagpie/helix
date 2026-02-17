@@ -59,6 +59,7 @@ pub struct Client {
     request_counter: AtomicU64,
     pub(crate) capabilities: OnceCell<lsp::ServerCapabilities>,
     pub(crate) file_operation_interest: OnceLock<FileOperationsInterest>,
+    only_manual_trigger: bool,
     config: Option<Value>,
     root_path: std::path::PathBuf,
     root_uri: Option<lsp::Url>,
@@ -214,6 +215,7 @@ impl Client {
         id: LanguageServerId,
         name: String,
         req_timeout: u64,
+        only_manual_trigger: bool,
     ) -> Result<(
         Self,
         UnboundedReceiver<(LanguageServerId, Call)>,
@@ -256,6 +258,7 @@ impl Client {
             request_counter: AtomicU64::new(0),
             capabilities: OnceCell::new(),
             file_operation_interest: OnceLock::new(),
+            only_manual_trigger,
             config,
             req_timeout,
             root_path,
@@ -299,6 +302,10 @@ impl Client {
         self.capabilities
             .get()
             .expect("language server not yet initialized!")
+    }
+
+    pub fn only_manual_trigger(&self) -> bool {
+        self.only_manual_trigger
     }
 
     pub(crate) fn file_operations_intests(&self) -> &FileOperationsInterest {
