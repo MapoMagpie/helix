@@ -25,7 +25,7 @@ impl<T: Item> Select<T> {
         let message = tui::text::Text::from(message.into()).into();
         let options: Vec<_> = options.into_iter().collect();
         assert!(!options.is_empty());
-        let mut menu = Menu::new(options, data, move |editor, option, event| {
+        let mut menu = Menu::new(options, data, false, move |editor, option, event| {
             // Options are non-empty (asserted above) and an option is selected by default,
             // so `option` must be Some here.
             let option = &option.unwrap();
