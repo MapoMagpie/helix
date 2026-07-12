@@ -110,6 +110,24 @@ fn softwrap_multichar_grapheme() {
     )
 }
 
+#[test]
+fn softwrap_word_boundary_is_2width() {
+    assert_eq!(
+        softwrap_text("xxxx1xxxx2xxxx3x，xxx4\n"),
+        "xxxx1xxxx2xxxx3x\n.，xxx4 \n "
+    );
+    assert_eq!(
+        softwrap_text("xxxx1xxxx2xxxx3x👩‍👩‍👦‍👦xxx4\n"),
+        "xxxx1xxxx2xxxx3x\n.👩‍👩‍👦‍👦xxx4 \n "
+    );
+    assert_eq!(
+        softwrap_text(
+            "  壹二三四五六柒，一二三四五六七八，一二三四五六七八,一二三四五六七八九十。\n"
+        ),
+        "  壹二三四五六柒\n...，一二三四五六\n...七八，一二三四\n...五六七八,一二\n...三四五六七八九\n...十。 \n "
+    );
+}
+
 fn softwrap_text_at_text_width(text: &str) -> String {
     let mut text_fmt = TextFormat::new_test(true);
     text_fmt.soft_wrap_at_text_width = true;
