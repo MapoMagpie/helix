@@ -1,0 +1,187 @@
+name: Nightly Build
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+env:
+  RUST_BACKTRACE: 1
+
+jobs:
+  fetch-grammars:
+    name: Fetch Grammars
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v7
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Fetch tree-sitter grammars
+        run: cargo run --package=helix-loader --bin=hx-loader
+
+      - name: Bundle grammars
+        run: tar cJf grammars.tar.xz -C runtime/grammars/sources .
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: grammars
+          path: grammars.tar.xz
+
+  dist:
+    name: Dist (${{ matrix.build }})
+    needs: [fetch-grammars]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        build: [x86_64-linux]
+        # build: [x86_64-linux, aarch64-linux, x86_64-macos, x86_64-windows, aarch64-macos, aarch64-windows]
+        include:
+        - build: x86_64-linux
+          os: ubuntu-22.04
+          rust: stable
+          target: x86_64-unknown-linux-gnu
+        # - build: aarch64-linux
+        #   os: ubuntu-22.04-arm
+        #   rust: stable
+        #   target: aarch64-unknown-linux-gnu
+        # - build: x86_64-macos
+        #   os: macos-latest
+        #   rust: stable
+        #   target: x86_64-apple-darwin
+        # - build: x86_64-windows
+        #   os: windows-latest
+        #   rust: stable
+        #   target: x86_64-pc-windows-msvc
+        # - build: aarch64-macos
+        #   os: macos-latest
+        #   rust: stable
+        #   target: aarch64-apple-darwin
+        # - build: aarch64-windows
+        #   os: windows-11-arm
+        #   rust: stable
+        #   target: aarch64-pc-windows-msvc
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v7
+
+      - name: Download grammars
+        uses: actions/download-artifact@v8
+
+      - name: Move grammars under runtime
+        if: "!startsWith(matrix.os, 'windows')"
+        run: |
+          mkdir -p runtime/grammars/sources
+          tar xJf grammars.tar.xz -C runtime/grammars/sources
+
+      - name: Remove the rust-toolchain.toml file
+        run: rm rust-toolchain.toml
+
+      - name: Install ${{ matrix.rust }} toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: ${{ matrix.rust }}
+          target: ${{ matrix.target }}
+
+      - name: Build release binary
+        run: cargo build --profile opt --locked --target ${{ matrix.target }}
+
+      - name: Build archive
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            cp "target/${{ matrix.target }}/opt/hx.exe" "dist/"
+          else
+            cp "target/${{ matrix.target }}/opt/hx" "dist/"
+          fi
+          if [ -d runtime/grammars/sources ]; then
+            rm -rf runtime/grammars/sources
+          fi
+          cp -r runtime dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bins-${{ matrix.build }}
+          path: dist
+
+  publish:
+    name: Publish Nightly
+    needs: [dist]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+
+      - name: Build packages
+        shell: bash
+        run: |
+          set -ex
+
+          source="$(pwd)"
+          date=$(date +%Y%m%d)
+          mkdir -p runtime/grammars/sources
+          tar xJf grammars/grammars.tar.xz -C runtime/grammars/sources
+          rm -rf grammars
+
+          cd "$(mktemp -d)"
+          mv $source/bins-* .
+          mkdir dist
+
+          for dir in bins-* ; do
+              platform=${dir#"bins-"}
+              exe=""
+              if [[ $platform =~ "windows" ]]; then
+                  exe=".exe"
+              fi
+              pkgname=helix-nightly-$date-$platform
+              mkdir -p $pkgname
+              cp $source/LICENSE $source/README.md $pkgname
+              mkdir $pkgname/contrib
+              cp -r $source/contrib/completion $pkgname/contrib
+              mv bins-$platform/runtime $pkgname/
+              mv bins-$platform/hx$exe $pkgname
+              chmod +x $pkgname/hx$exe
+
+              if [ "$exe" = "" ]; then
+                  tar cJf dist/$pkgname.tar.xz $pkgname
+              else
+                  7z a -r dist/$pkgname.zip $pkgname
+              fi
+          done
+
+          tar cJf dist/helix-nightly-$date-source.tar.xz -C $source .
+          mv dist $source/
+
+      - name: Attest release artifacts
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: 'dist/*'
+
+      - name: Update nightly release
+        uses: softprops/action-gh-release@5eda2bda2e6b7d39e0eda7eaa1edab67b793019a # v2
+        with:
+          name: "Nightly Build"
+          tag_name: nightly
+          prerelease: true
+          files: dist/*
+          body: |
+            Nightly build from `my-helix` branch.
+
+            Built at: ${{ github.event.repository.updated_at }}
