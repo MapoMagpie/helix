@@ -45,8 +45,13 @@ jobs:
           # Runtime archive (queries + compiled grammars)
           tar cJf dist/helix-runtime.tar.xz runtime
 
-          # Source archive (standard git archive)
-          git archive --format=tar.xz -o dist/helix-source.tar.xz HEAD
+          # Source archive
+          tar cJf dist/helix-source.tar.xz \
+              --exclude='runtime/grammars' \
+              --exclude='.git' \
+              --exclude='target' \
+              --exclude='dist' \
+              .
 
       - name: Create release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
@@ -60,4 +65,4 @@ jobs:
             | File | Purpose |
             |------|---------|
             | `helix-runtime.tar.xz` | Pre-compiled runtime (queries + grammars) |
-            | `helix-source.tar.xz` | Source tree (via `git archive`) |
+            | `helix-source.tar.xz` | Source tree for Nix build |
