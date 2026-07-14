@@ -175,7 +175,7 @@ jobs:
           subject-path: 'dist/*'
 
       - name: Update nightly release
-        uses: softprops/action-gh-release@5eda2bda2e6b7d39e0eda7eaa1edab67b793019a # v2
+        uses: softprops/action-gh-release@c95b8f7d91e0f5ef040125bac44a5a99e8a60b4d # v2.2.1
         with:
           name: "Nightly Build"
           tag_name: nightly
