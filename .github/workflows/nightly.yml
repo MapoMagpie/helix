@@ -1,0 +1,68 @@
+name: Publish Runtime
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g., v20260714 or v1.0.0)'
+        required: true
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Publish Runtime (${{ inputs.version }})
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v7
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Build tree-sitter grammars
+        run: cargo check -p helix-term
+
+      - name: Package artifacts
+        shell: bash
+        run: |
+          set -ex
+
+          # Remove grammar sources (keep only compiled .so files)
+          rm -rf runtime/grammars/sources
+
+          mkdir -p dist
+
+          # Runtime archive (queries + compiled grammars)
+          tar cJf dist/helix-runtime.tar.xz runtime
+
+          # Source archive
+          tar cJf dist/helix-source.tar.xz \
+              --exclude='runtime/grammars' \
+              --exclude='.git' \
+              --exclude='target' \
+              --exclude='dist' \
+              .
+
+      - name: Create release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          name: "Helix Runtime ${{ inputs.version }}"
+          tag_name: ${{ inputs.version }}
+          files: dist/*
+          body: |
+            Runtime and source archives from `my-helix` branch.
+
+            | File | Purpose |
+            |------|---------|
+            | `helix-runtime.tar.xz` | Pre-compiled runtime (queries + grammars) |
+            | `helix-source.tar.xz` | Source tree for Nix build |
