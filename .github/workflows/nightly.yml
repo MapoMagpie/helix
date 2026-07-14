@@ -1,6 +1,11 @@
-name: Nightly Build
+name: Publish Runtime
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g., v20260714 or v1.0.0)'
+        required: true
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}
@@ -11,7 +16,7 @@ permissions:
 
 jobs:
   publish:
-    name: Publish Nightly
+    name: Publish Runtime (${{ inputs.version }})
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
@@ -24,15 +29,13 @@ jobs:
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
-      - name: Fetch and compile tree-sitter grammars
-        run: cargo run --package=helix-loader --bin=hx-loader
+      - name: Build tree-sitter grammars
+        run: cargo check -p helix-term
 
-      - name: Build packages
+      - name: Package artifacts
         shell: bash
         run: |
           set -ex
-
-          date=$(date +%Y%m%d)
 
           # Remove grammar sources (keep only compiled .so files)
           rm -rf runtime/grammars/sources
@@ -43,28 +46,23 @@ jobs:
           tar cJf dist/helix-runtime.tar.xz runtime
 
           # Source archive
-          tar cJf dist/helix-nightly-$date-source.tar.xz \
+          tar cJf dist/helix-source.tar.xz \
               --exclude='runtime/grammars' \
               --exclude='.git' \
               --exclude='target' \
               --exclude='dist' \
               .
 
-          echo "VERSION=$date" >> $GITHUB_ENV
-
-      - name: Update nightly release
+      - name: Create release
         uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          name: "Nightly Build"
-          tag_name: nightly
-          prerelease: true
+          name: "Helix Runtime ${{ inputs.version }}"
+          tag_name: ${{ inputs.version }}
           files: dist/*
           body: |
-            Nightly build from `my-helix` branch.
-
-            Built at: ${{ github.event.repository.updated_at }}
+            Runtime and source archives from `my-helix` branch.
 
             | File | Purpose |
             |------|---------|
-            | `helix-runtime.tar.xz` | Pre-compiled runtime (queries + grammars, for NixOS builds) |
-            | `helix-nightly-*-source.tar.xz` | Full source tree |
+            | `helix-runtime.tar.xz` | Pre-compiled runtime (queries + grammars) |
+            | `helix-source.tar.xz` | Source tree for Nix build |
