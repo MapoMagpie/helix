@@ -144,6 +144,9 @@ jobs:
           mv $source/bins-* .
           mkdir dist
 
+          # Standalone runtime archive (for NixOS: skip grammar compilation)
+          tar cJf dist/helix-runtime.tar.xz -C bins-x86_64-linux runtime
+
           for dir in bins-* ; do
               platform=${dir#"bins-"}
               exe=""
@@ -185,3 +188,11 @@ jobs:
             Nightly build from `my-helix` branch.
 
             Built at: ${{ github.event.repository.updated_at }}
+
+            ### Files
+
+            | File | Purpose |
+            |------|---------|
+            | `helix-nightly-*-x86_64-linux.tar.xz` | Binary + runtime (for standard Linux) |
+            | `helix-nightly-*-source.tar.xz` | Full source tree |
+            | `helix-runtime.tar.xz` | Pre-compiled runtime (queries + grammars, for NixOS builds) |
